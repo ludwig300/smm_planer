@@ -8,7 +8,7 @@ SMM Planer - это скрипт на Python, который автоматич�
 1. Склонируйте репозиторий:
 
 ``` bash
-git clone https://github.com/yourusername/smm_automation.git
+git clone https://github.com/ludwig300/smm_planer.git
 ```
 
 2. Установите зависимости:
