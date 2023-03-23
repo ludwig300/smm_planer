@@ -5,10 +5,12 @@ import requests
 
 
 class OKAPI:
-    def __init__(self, public_key, private_key, access_token):
+    def __init__(self, access_token, public_key, private_key, gid=None, aid=None):
+        self.access_token = access_token
         self.public_key = public_key
         self.private_key = private_key
-        self.access_token = access_token
+        self.gid = gid
+        self.aid = aid
 
     def _sig(self, params):
         sorted_params = "".join(
@@ -28,15 +30,31 @@ class OKAPI:
         response.raise_for_status()
         return response.json()
 
-    def photo_upload(self, url):
-        upload_url = self._call("photos.getUploadUrl")["upload_url"]
-        response = requests.post(
-            upload_url,
-            files={"photo": requests.get(url).content}
-        )
-        photo_id = json.loads(response.text)["photo_ids"][0]
-        return photo_id
+    def get_photo_upload_url(self):
+        return self._call("photos.getUploadUrl")["upload_url"]
 
-    def wall_post(self, text, attachments):
-        params = {"attachment": json.dumps(attachments), "message": text}
-        return self._call("mediatopic.post", **params)
+    def _get_photo_upload_server(self):
+        method = "photosV2.getUploadUrl"
+        params = {
+            "gid": self.gid,
+            "aid": self.aid,
+        }
+        return self._call(method, **params)
+
+    def photo_upload(self, url):
+        try:
+            resp = self._get_photo_upload_server()
+            upload_url = resp["upload_url"]
+        except KeyError:
+            print(f"Ошибка: Ответ сервера: {resp}")
+            return None
+
+        response = requests.get(url)
+        photo_data = response.content
+
+        files = {"pic1": ("photo.jpg", photo_data, "image/jpeg")}
+        response = requests.post(upload_url, files=files)
+        result = response.json()
+
+        photo_id = result["photo_ids"][0]
+        return photo_id

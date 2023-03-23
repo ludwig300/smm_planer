@@ -2,8 +2,8 @@ import asyncio
 from datetime import datetime
 import json
 import os
-from time import sleep
 
+import aiohttp
 import requests
 import vk_api
 from dotenv import load_dotenv
@@ -57,10 +57,13 @@ def process_google_doc(doc_id):
 
 
 async def send_telegram_message(chat_id, text, photo_url=None):
-    if photo_url:
-        await telegram_bot.send_photo(chat_id=chat_id, photo=photo_url, caption=text)
-    else:
-        await telegram_bot.send_message(chat_id=chat_id, text=text)
+    async with aiohttp.ClientSession() as session:
+        if photo_url:
+            async with session.get(photo_url) as resp:
+                image_data = await resp.read()
+            await telegram_bot.send_photo(chat_id=chat_id, photo=image_data, caption=text)
+        else:
+            await telegram_bot.send_message(chat_id=chat_id, text=text)
 
 
 def send_vk_post(owner_id, text, photo_url=None):
@@ -70,7 +73,6 @@ def send_vk_post(owner_id, text, photo_url=None):
         attachment = f"photo{photo['owner_id']}_{photo['id']}"
     else:
         attachment = None
-
     vk.wall.post(owner_id=owner_id, message=text, attachments=attachment)
 
 
@@ -83,17 +85,22 @@ def vk_upload(session, image_data):
     return photos[0]
 
 
-def send_ok_post(text, photo_url=None):
+def send_ok_post(group_id, text, photo_url=None):
     if photo_url:
-        image_data = requests.get(photo_url).content
-        photo_id = ok_api.photo_upload(image_data)
+        photo_id = ok_api.photo_upload(url=photo_url)
     else:
         photo_id = None
 
-    ok_api.post(text, photo_id)
+    attachment = {"media": [{"type": "text", "text": text}]}
+
+    if photo_id:
+        attachment["media"].append({"type": "photo", "list": [{"id": photo_id}]})
+
+    ok_api.wall_post(text="", attachments=attachment, gid=group_id)
 
 
 async def main(last_check_time):
+    await asyncio.sleep(5)
     posts = get_posts_from_sheet()
 
     for post in posts:
@@ -136,9 +143,11 @@ async def main(last_check_time):
 
         if "ok" in networks:
             try:
+                print(await ok_api.photo_upload(url=photo_url))
                 send_ok_post(ok_group_id, text, photo_url)
             except Exception as e:
                 print(f"Ошибка при отправке сообщения в Одноклассники: {e}")
+        await asyncio.sleep(60)
 
 
 if __name__ == '__main__':
@@ -146,4 +155,3 @@ if __name__ == '__main__':
     while True:
         asyncio.run(main(last_check_time))
         last_check_time = datetime.now()
-        sleep(60)
