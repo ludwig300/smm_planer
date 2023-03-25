@@ -1,6 +1,5 @@
 import hashlib
 import json
-
 import requests
 
 
@@ -41,7 +40,10 @@ class OKAPI:
         }
         return self._call(method, **params)
 
-    def photo_upload(self, url):
+    def photo_upload(self, url, gid=None):
+        if gid is not None:
+            self.gid = gid
+
         try:
             resp = self._get_photo_upload_server()
             upload_url = resp["upload_url"]
@@ -55,6 +57,26 @@ class OKAPI:
         files = {"pic1": ("photo.jpg", photo_data, "image/jpeg")}
         response = requests.post(upload_url, files=files)
         result = response.json()
+        photo_info = list(result["photos"].values())[0]
+        photo_id = photo_info["token"]
 
-        photo_id = result["photo_ids"][0]
         return photo_id
+
+    def wall_post(self, text, attachments, gid=None, uid=None):
+        if gid is None and uid is None:
+            raise ValueError("Either 'gid' or 'uid' should be provided.")
+        params = {
+            "attachment": json.dumps(attachments),
+            "type": "GROUP_THEME" if gid else "USER_THEME",
+        }
+
+        if gid:
+            params["gid"] = gid
+        elif uid:
+            params["uid"] = uid
+
+        if text:
+            params["message"] = text
+
+        response = self._call("mediatopic.post", **params)
+        return response

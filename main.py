@@ -86,24 +86,45 @@ def vk_upload(session, image_data):
 
 
 def send_ok_post(group_id, text, photo_url=None):
-    if photo_url:
-        photo_id = ok_api.photo_upload(url=photo_url)
-    else:
-        photo_id = None
+    try:
+        if photo_url:
+            photo_id = ok_api.photo_upload(url=photo_url, gid=group_id)
+        else:
+            photo_id = None
 
-    attachment = {"media": [{"type": "text", "text": text}]}
+        attachment = {"media": [{"type": "text", "text": text}]}
 
-    if photo_id:
-        attachment["media"].append({"type": "photo", "list": [{"id": photo_id}]})
+        if photo_id:
+            attachment["media"].append({"type": "photo", "list": [{"id": photo_id}]})
 
-    ok_api.wall_post(text="", attachments=attachment, gid=group_id)
+        response = ok_api.wall_post(text="", attachments=attachment, gid=group_id)
+        print(f"OK API wall_post response: {response}")
+
+    except Exception as e:
+        print(f"Ошибка при отправке сообщения в Одноклассники: {e}")
+        raise e
+
+
+def update_status_in_sheet(row, status_dict):
+    update_range = f"I{row}:K{row}"
+    body = {
+        "range": update_range,
+        "values": [[status_dict.get("Telegram", ""), status_dict.get("ВКонтакте", ""), status_dict.get("Одноклассники", "")]]
+    }
+    sheets_service.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=update_range,
+        valueInputOption="RAW",
+        body=body
+    ).execute()
+
 
 
 async def main(last_check_time):
     await asyncio.sleep(5)
     posts = get_posts_from_sheet()
 
-    for post in posts:
+    for i, post in enumerate(posts, start=2):  # Добавьте индекс строки (начиная с 2, чтобы пропустить заголовки)
         post_date, post_time, networks, doc_url, photo_url, telegram_chat_id, vk_owner_id, ok_group_id = post
         post_datetime_str = f"{post_date} {post_time}"
         post_datetime = datetime.strptime(post_datetime_str, "%d.%m.%Y %H:%M")
@@ -129,24 +150,34 @@ async def main(last_check_time):
                     if "textRun" in element:
                         text += element["textRun"]["content"]
 
+        status_dict = {}
+
         if "Telegram" in networks:
             try:
                 await send_telegram_message(telegram_chat_id, text, photo_url)
+                status_dict["Telegram"] = "Success"
             except Exception as e:
                 print(f"Ошибка при отправке сообщения в Телеграм: {e}")
+                status_dict["Telegram"] = f"Error: {e}"
 
         if "ВКонтакте" in networks:
             try:
                 send_vk_post(vk_owner_id, text, photo_url)
+                status_dict["ВКонтакте"] = "Success"
             except Exception as e:
                 print(f"Ошибка при отправке сообщения в ВКонтакте: {e}")
+                status_dict["ВКонтакте"] = f"Error: {e}"
 
-        if "ok" in networks:
+        if "Одноклассники" in networks:
             try:
-                print(await ok_api.photo_upload(url=photo_url))
                 send_ok_post(ok_group_id, text, photo_url)
+                status_dict["Одноклассники"] = "Success"
             except Exception as e:
                 print(f"Ошибка при отправке сообщения в Одноклассники: {e}")
+                status_dict["Одноклассники"] = f"Error: {e}"
+
+        update_status_in_sheet(posts.index(post) + 2, status_dict)
+
         await asyncio.sleep(60)
 
 
