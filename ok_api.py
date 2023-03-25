@@ -54,13 +54,18 @@ class OKAPI:
         response = requests.get(url)
         photo_data = response.content
 
-        files = {"pic1": ("photo.jpg", photo_data, "image/jpeg")}
+        # Измените эту строку, чтобы определить тип файла на основе URL
+        file_extension = url.split(".")[-1]
+        content_type = f"image/{file_extension}"
+
+        files = {"pic1": (f"photo.{file_extension}", photo_data, content_type)}
         response = requests.post(upload_url, files=files)
         result = response.json()
         photo_info = list(result["photos"].values())[0]
         photo_id = photo_info["token"]
 
         return photo_id
+
 
     def wall_post(self, text, attachments, gid=None, uid=None):
         if gid is None and uid is None:
