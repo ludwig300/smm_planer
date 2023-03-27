@@ -56,33 +56,72 @@ def process_google_doc(doc_id):
     return doc.get("body", {}).get("content", [])
 
 
-async def send_telegram_message(chat_id, text, photo_url=None):
+async def send_telegram_message(chat_id, text, photo_url=None, is_gif=False):
     async with aiohttp.ClientSession() as session:
         if photo_url:
-            async with session.get(photo_url) as resp:
-                image_data = await resp.read()
-            await telegram_bot.send_photo(chat_id=chat_id, photo=image_data, caption=text)
+            if is_gif:
+                await telegram_bot.send_animation(chat_id=chat_id, animation=photo_url, caption=text)
+            else:
+                async with session.get(photo_url) as resp:
+                    image_data = await resp.read()
+                url = f"https://api.telegram.org/bot{TELEGRAM_API_TOKEN}/sendPhoto"
+                data = aiohttp.FormData()
+                data.add_field("chat_id", str(chat_id))
+                data.add_field("caption", text)
+                data.add_field("photo", image_data, filename="photo.jpg", content_type="image/jpeg")
+                await session.post(url, data=data)
         else:
             await telegram_bot.send_message(chat_id=chat_id, text=text)
 
 
-def send_vk_post(owner_id, text, photo_url=None):
+def vk_upload(session, image_data, is_gif=False):
+    if is_gif:
+        upload_server = session.method("docs.getWallUploadServer")
+        upload_url = upload_server["upload_url"]
+        response = requests.post(upload_url, files={"file": ("image.gif", image_data, "image/gif")})
+        result = json.loads(response.text)
+        print("Ответ сервера при загрузке гифки:", result)
+        try:
+            docs = session.method("docs.save", {"file": result["file"], "title": "image.gif", "access": 0, "type": "gif"})
+        except Exception as e:
+            print(f"Ошибка при сохранении гифки в ВКонтакте: {e}")
+            raise e
+
+    else:
+        upload_server = session.method("photos.getWallUploadServer")
+        upload_url = upload_server["upload_url"]
+        response = requests.post(upload_url, files={"photo": ("image.jpg", image_data)})
+        result = json.loads(response.text)
+        photos = session.method("photos.saveWallPhoto", {"photo": result["photo"], "server": result["server"], "hash": result["hash"]})
+        docs = photos
+    return docs[0]
+
+
+def send_vk_post(owner_id, text, photo_url=None, is_gif=False):
+    attachment = None
     if photo_url:
         image_data = requests.get(photo_url).content
-        photo = vk_upload(vk_session, image_data)
-        attachment = f"photo{photo['owner_id']}_{photo['id']}"
-    else:
-        attachment = None
-    vk.wall.post(owner_id=owner_id, message=text, attachments=attachment)
+        if is_gif:
+            photo = vk_upload(vk_session, image_data, is_gif=True)
+            attachment = f"doc{photo['owner_id']}_{photo['id']}_{photo.get('access_key', '')}"
+        else:
+            photo = vk_upload(vk_session, image_data)
+            attachment = f"photo{photo['owner_id']}_{photo['id']}"
 
-
-def vk_upload(session, image_data):
-    upload_server = session.method("photos.getWallUploadServer")
-    upload_url = upload_server["upload_url"]
-    response = requests.post(upload_url, files={"photo": ("image.jpg", image_data)})
-    result = json.loads(response.text)
-    photos = session.method("photos.saveWallPhoto", {"photo": result["photo"], "server": result["server"], "hash": result["hash"]})
-    return photos[0]
+    try:
+        response = vk.wall.post(owner_id=owner_id, message=text, attachments=attachment)
+        print("Сообщение успешно отправлено на стену ВКонтакте.")
+        print(f"Ответ сервера ВКонтакте при отправке сообщения: {response}")
+    except KeyError as e:
+        print(f"KeyError in send_vk_post: {e}")
+        print(f"Тип исключения: {type(e)}")
+        print(f"Атрибуты исключения: {dir(e)}")
+        print(f"Данные исключения: {e.__dict__}")
+        print(f"Отсутствующий ключ: {e.args[0]}") # добавьте эту строку для отображения ключа, вызывающего ошибку
+        raise e
+    except Exception as e:
+        print(f"Другая ошибка в send_vk_post: {e}")
+        raise e
 
 
 def send_ok_post(group_id, text, photo_url=None):
@@ -119,7 +158,6 @@ def update_status_in_sheet(row, status_dict):
     ).execute()
 
 
-
 async def main(last_check_time):
     await asyncio.sleep(5)
     posts = get_posts_from_sheet()
@@ -151,10 +189,10 @@ async def main(last_check_time):
                         text += element["textRun"]["content"]
 
         status_dict = {}
-
+        is_gif = photo_url.endswith(".gif")
         if "Telegram" in networks:
             try:
-                await send_telegram_message(telegram_chat_id, text, photo_url)
+                await send_telegram_message(telegram_chat_id, text, photo_url, is_gif=is_gif)
                 status_dict["Telegram"] = "Success"
             except Exception as e:
                 print(f"Ошибка при отправке сообщения в Телеграм: {e}")
@@ -162,10 +200,13 @@ async def main(last_check_time):
 
         if "ВКонтакте" in networks:
             try:
-                send_vk_post(vk_owner_id, text, photo_url)
+                send_vk_post(vk_owner_id, text, photo_url, is_gif=is_gif)
                 status_dict["ВКонтакте"] = "Success"
             except Exception as e:
                 print(f"Ошибка при отправке сообщения в ВКонтакте: {e}")
+                print(f"Тип исключения: {type(e)}")
+                print(f"Атрибуты исключения: {dir(e)}")
+                print(f"Данные исключения: {e.__dict__}")
                 status_dict["ВКонтакте"] = f"Error: {e}"
 
         if "Одноклассники" in networks:
@@ -182,7 +223,6 @@ async def main(last_check_time):
 
 
 if __name__ == '__main__':
-    last_check_time = datetime.now()
     while True:
-        asyncio.run(main(last_check_time))
         last_check_time = datetime.now()
+        asyncio.run(main(last_check_time))
