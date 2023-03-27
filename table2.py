@@ -76,7 +76,13 @@ def send_vk_post(owner_id, text, photo_url=None):
         attachment = f"photo{photo['owner_id']}_{photo['id']}"
     else:
         attachment = None
-    vk.wall.post(owner_id=owner_id, message=text, attachments=attachment)
+    response = vk.wall.post(owner_id=owner_id, message=text, attachments=attachment)
+    if '-' in response:
+        return f'https://vk.com/wall{owner_id}?own=1&{owner_id}_{response["post_id"]}' # Ссылка на фото группы возможно не рабочая
+    else:
+        return f'https://vk.com/wall{owner_id}_{response["post_id"]}' # Ссылка на фото пользователя должна работать
+
+
 
 
 def vk_upload(session, image_data):
@@ -137,7 +143,7 @@ def update_status_in_sheet(status_dict, names, rows=(1, 1), colons=('I', 'K'), s
 
 async def main(last_check_time):
     await asyncio.sleep(5)
-    networks = get_posts_from_sheet("БД \"Соцсети\"!A3:E7")  # содержимое заданного листа по точным координатам
+    networks = get_posts_from_sheet("БД \"Соцсети\"!A3:E9")  # содержимое заданного листа по точным координатам
     names = {}
     network_ids = []
     for i, network in enumerate(networks):
@@ -195,9 +201,11 @@ async def main(last_check_time):
 
             if network == 'VK':
                 try:
-                    send_vk_post(network_id, text, photo_url)
+                    link = send_vk_post(network_id, text, photo_url)
                     status_dict[network_id] = "Success"
-                    links[network_id] = f'https://vk.com/id{network_id}'
+                    links[network_id] = link
+                    print(link)
+                    print(links)
                 except Exception as e:
                     print(f"Ошибка при отправке сообщения в ВКонтакте: {e}")
                     status_dict[network_id] = f"Error: {e}"
@@ -206,7 +214,7 @@ async def main(last_check_time):
                 try:
                     link = send_ok_post(network_id, text, photo_url)
                     status_dict[network_id] = "Success"
-                    links[network_id]= link
+                    links[network_id] = link['post_id']
                 except Exception as e:
                     print(f"Ошибка при отправке сообщения в Одноклассники: {e}")
                     status_dict[network_id] = f"Error: {e}"
