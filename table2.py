@@ -149,6 +149,7 @@ async def main(last_check_time):
     for i, post in enumerate(posts):
         post_date, post_time, doc_url, photo_url, check_names = post
         if not post_date or not post_time:
+            row -= 1
             continue
         check_names = check_names.split(', ')
         post_datetime_str = f"{post_date} {post_time}"
@@ -156,6 +157,7 @@ async def main(last_check_time):
         now = datetime.now()
         # Проверяем, отправлялись ли сообщения в прошлый раз
         if post_datetime <= last_check_time:
+            row -= 1
             continue
 
         # Вычисляем задержку
