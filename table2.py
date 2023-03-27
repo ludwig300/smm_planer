@@ -204,8 +204,6 @@ async def main(last_check_time):
                     link = send_vk_post(network_id, text, photo_url)
                     status_dict[network_id] = "Success"
                     links[network_id] = link
-                    print(link)
-                    print(links)
                 except Exception as e:
                     print(f"Ошибка при отправке сообщения в ВКонтакте: {e}")
                     status_dict[network_id] = f"Error: {e}"
