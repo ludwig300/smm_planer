@@ -64,9 +64,11 @@ async def send_telegram_message(chat_id, text, photo_url=None):
         if photo_url:
             async with session.get(photo_url) as resp:
                 image_data = await resp.read()
-            await telegram_bot.send_photo(chat_id=chat_id, photo=image_data, caption=text)
+            response = await telegram_bot.send_photo(chat_id=chat_id, photo=image_data, caption=text)
+            return response['message_id']
         else:
-            await telegram_bot.send_message(chat_id=chat_id, text=text)
+            response = await telegram_bot.send_message(chat_id=chat_id, text=text)
+            return response['message_id']
 
 
 def send_vk_post(owner_id, text, photo_url=None):
@@ -191,9 +193,9 @@ async def main(last_check_time):
             network, network_id = names[name]
             if network == 'TG':
                 try:
-                    await send_telegram_message(network_id, text, photo_url)
+                    link = await send_telegram_message(network_id, text, photo_url)
                     status_dict[network_id] = "Success"
-                    links[network_id] = f'https://t.me/{network_id}'
+                    links[network_id] = f'https://tlgg.ru/{network_id}/{link}'
 
                 except Exception as e:
                     print(f"Ошибка при отправке сообщения в Телеграм: {e}")
