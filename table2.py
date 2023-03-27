@@ -106,6 +106,7 @@ def send_ok_post(group_id, text, photo_url=None):
         if type(response) == 'dict':
             response.get('error_code')
             raise Exception(f'code status {response["error_code"]}')
+        return f'https://ok.ru/group/{group_id}/topic/{response}'
 
     except Exception as e:
         print(f"Ошибка при отправке сообщения в Одноклассники: {e}")
@@ -203,9 +204,9 @@ async def main(last_check_time):
 
             if network == 'OK':
                 try:
-                    send_ok_post(network_id, text, photo_url)
+                    link = send_ok_post(network_id, text, photo_url)
                     status_dict[network_id] = "Success"
-                    links[network_id]= f'https://ok.ru/group/{network_id}'
+                    links[network_id]= link
                 except Exception as e:
                     print(f"Ошибка при отправке сообщения в Одноклассники: {e}")
                     status_dict[network_id] = f"Error: {e}"
