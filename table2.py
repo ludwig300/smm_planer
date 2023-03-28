@@ -107,9 +107,7 @@ def send_ok_post(group_id, text, photo_url=None):
 
         if photo_id:
             attachment["media"].append({"type": "photo", "list": [{"id": photo_id}]})
-
         response = ok_api.wall_post(text="", attachments=attachment, gid=group_id)
-
         print(f"OK API wall_post response: {response}")
         if type(response) == 'dict':
             response.get('error_code')
@@ -214,7 +212,7 @@ async def main(last_check_time):
                 try:
                     link = send_ok_post(network_id, text, photo_url)
                     status_dict[network_id] = "Success"
-                    links[network_id] = link['post_id']
+                    links[network_id] = link
                 except Exception as e:
                     print(f"Ошибка при отправке сообщения в Одноклассники: {e}")
                     status_dict[network_id] = f"Error: {e}"
@@ -231,4 +229,3 @@ if __name__ == '__main__':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         asyncio.run(main(last_check_time))
         last_check_time = datetime.now()
-
