@@ -142,7 +142,6 @@ def update_status_in_sheet(status_dict, names, rows=(1, 1), colons=('I', 'K'), s
 def status_log_row_check(log, row, check_name):
     if not log:
         return False
-    print(log)
     try:
         log = log[row]
     except IndexError:
@@ -171,8 +170,6 @@ async def main(last_check_time):
         names[name] = network_type, name_id
         network_ids.append(name_id)
     posts = get_posts_from_sheet("requests log!E:A3")
-    print(posts)
-    print(datetime.now())
     posts = posts[::-1]
     row = len(posts) + 2
     for i, post in enumerate(posts):
