@@ -45,6 +45,7 @@ vk = vk_session.get_api()
 # Аутентификация и создание клиента OK API
 ok_api = OKAPI(access_token=OK_ACCESS_TOKEN, public_key=OK_PUBLIC_KEY, private_key=OK_PRIVATE_KEY)
 
+
 def get_posts_from_sheet(range="A2:H"):
     result = sheets_service.spreadsheets().values().get(
         spreadsheetId=SPREADSHEET_ID,
@@ -80,11 +81,9 @@ def send_vk_post(owner_id, text, photo_url=None):
         attachment = None
     response = vk.wall.post(owner_id=owner_id, message=text, attachments=attachment)
     if '-' in response:
-        return f'https://vk.com/wall{owner_id}?own=1&{owner_id}_{response["post_id"]}' # Ссылка на фото группы возможно не рабочая
+        return f'https://vk.com/wall{owner_id}?own=1&{owner_id}_{response["post_id"]}'
     else:
-        return f'https://vk.com/wall{owner_id}_{response["post_id"]}' # Ссылка на фото пользователя должна работать
-
-
+        return f'https://vk.com/wall{owner_id}_{response["post_id"]}'
 
 
 def vk_upload(session, image_data):
@@ -140,10 +139,31 @@ def update_status_in_sheet(status_dict, names, rows=(1, 1), colons=('I', 'K'), s
     ).execute()
 
 
+def status_log_row_check(log, row, check_name):
+    if not log:
+        return False
+    print(log)
+    try:
+        log = log[row]
+    except IndexError:
+        return False
+    for colon in log:
+        if not colon:
+            continue
+        cell = colon.split(', ')
+        try:
+            name, status = cell
+        except ValueError:
+            return False
+        if name == check_name:
+            return status
+    return False
+
 
 async def main(last_check_time):
     await asyncio.sleep(5)
     networks = get_posts_from_sheet("БД \"Соцсети\"!A3:E9")  # содержимое заданного листа по точным координатам
+    networks_log = get_posts_from_sheet("log!A:G")
     names = {}
     network_ids = []
     for i, network in enumerate(networks):
@@ -151,29 +171,31 @@ async def main(last_check_time):
         names[name] = network_type, name_id
         network_ids.append(name_id)
     posts = get_posts_from_sheet("requests log!E:A3")
+    print(posts)
+    print(datetime.now())
     posts = posts[::-1]
     row = len(posts) + 2
     for i, post in enumerate(posts):
         post_date, post_time, doc_url, photo_url, check_names = post
-        if not post_date or not post_time:
+        if not all([post_date, post_time, doc_url, photo_url, check_names]):
             row -= 1
             continue
         check_names = check_names.split(', ')
         post_datetime_str = f"{post_date} {post_time}"
-        post_datetime = datetime.strptime(post_datetime_str, "%d.%m.%Y %H:%M")
+        try:
+            post_datetime = datetime.strptime(post_datetime_str, "%d.%m.%Y %H:%M")
+        except ValueError:
+            row -= 1
+            continue
+        # if
+
         now = datetime.now()
         # Проверяем, отправлялись ли сообщения в прошлый раз
-        if post_datetime <= last_check_time:
+        if post_datetime > now:
             row -= 1
             continue
 
-        # Вычисляем задержку
-        delay = (post_datetime - now).total_seconds()
-        if delay > 0:
-            # Ожидаем задержку
-            await asyncio.sleep(delay)
 
-        # Продолжаем с отправкой сообщений
         text = ""
         doc_id = doc_url.split("/")[-1]
         doc_content = process_google_doc(doc_id)
@@ -185,47 +207,54 @@ async def main(last_check_time):
 
         status_dict = {}
         links = {}
-
-
+        log = {}
         for name in check_names:
-            network, network_id = names[name]
-            if network == 'TG':
+            network, network_id = names.get(name)
+            if network == 'TG' and not status_log_row_check(networks_log, row, network_id):
                 try:
                     link = await send_telegram_message(network_id, text, photo_url)
                     status_dict[network_id] = "Success"
                     links[network_id] = f'https://tlgg.ru/{network_id}/{link}'
+                    log[network_id] = f'{network_id}, True'
 
                 except Exception as e:
                     print(f"Ошибка при отправке сообщения в Телеграм: {e}")
                     status_dict[network_id] = f"Error: {e}"
+                    log[network_id] = f'{network_id}, False'
 
-            if network == 'VK':
+            if network == 'VK' and not status_log_row_check(networks_log, row, network_id):
                 try:
                     link = send_vk_post(network_id, text, photo_url)
                     status_dict[network_id] = "Success"
                     links[network_id] = link
+                    log[network_id] = f'{network_id}, True'
                 except Exception as e:
                     print(f"Ошибка при отправке сообщения в ВКонтакте: {e}")
                     status_dict[network_id] = f"Error: {e}"
+                    log[network_id] = f'{network_id}, False'
 
-            if network == 'OK':
+            if network == 'OK' and not status_log_row_check(networks_log, row, network_id):
                 try:
                     link = send_ok_post(network_id, text, photo_url)
                     status_dict[network_id] = "Success"
                     links[network_id] = link
+                    log[network_id] = f'{network_id}, True'
                 except Exception as e:
                     print(f"Ошибка при отправке сообщения в Одноклассники: {e}")
+                    log[network_id] = f'{network_id}, False'
                     status_dict[network_id] = f"Error: {e}"
         update_status_in_sheet(status_dict, network_ids, colons=('F', 'L'), rows=(row, row), sheet='requests log')
         update_status_in_sheet(links, network_ids, colons=('M', 'S'), rows=(row, row), sheet='requests log')
-        # Ссылка на группу или канал, а не на пост
+        update_status_in_sheet(log, network_ids, colons=('A', 'G'), rows=(row, row), sheet='log')
+
         row -= 1
 
     await asyncio.sleep(60)
 
+#
 if __name__ == '__main__':
-    last_check_time = datetime.now()
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     while True:
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        asyncio.run(main(last_check_time))
         last_check_time = datetime.now()
+        asyncio.run(main(last_check_time))
+
