@@ -150,7 +150,7 @@ def status_log_row_check(log, row, check_name):
         try:
             name, status = cell
             if name == check_name:
-                return status
+                return eval(status)
         except ValueError:
             continue
 
@@ -258,7 +258,6 @@ async def main(last_check_time):
 
         update_status_in_sheet(status_dict, network_ids, colons=('F', 'L'), rows=(row, row), sheet='requests log')
         update_status_in_sheet(links, network_ids, colons=('M', 'S'), rows=(row, row), sheet='requests log')
-        # print(log, row) 
         update_status_in_sheet(log, network_ids, colons=('A', 'G'), rows=(row, row), sheet='log')
         row_check -= 1
         row -= 1
