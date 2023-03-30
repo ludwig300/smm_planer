@@ -175,8 +175,17 @@ async def main(last_check_time):
     row = len(posts) + 2
     row_check = len(posts) + 1
     for i, post in enumerate(posts):
-        post_date, post_time, doc_url, photo_url, check_names = post
+        try:
+            post_date, post_time, doc_url, photo_url, check_names = post
+        except ValueError:
+            row_check -= 1
+            row -= 1
+            continue
         if not all([post_date, post_time, check_names]) and not any([doc_url, photo_url]):
+            row_check -= 1
+            row -= 1
+            continue
+        if not any([doc_url, photo_url]):
             row_check -= 1
             row -= 1
             continue
@@ -196,15 +205,15 @@ async def main(last_check_time):
             row -= 1
             continue
 
-
         text = ""
-        doc_id = doc_url.split("/")[-1]
-        doc_content = process_google_doc(doc_id)
-        for item in doc_content:
-            if "paragraph" in item:
-                for element in item["paragraph"]["elements"]:
-                    if "textRun" in element:
-                        text += element["textRun"]["content"]
+        if doc_url:
+            doc_id = doc_url.split("/")[-1]
+            doc_content = process_google_doc(doc_id)
+            for item in doc_content:
+                if "paragraph" in item:
+                    for element in item["paragraph"]["elements"]:
+                        if "textRun" in element:
+                            text += element["textRun"]["content"]
 
         status_dict = {}
         links = {}
@@ -249,7 +258,7 @@ async def main(last_check_time):
 
         update_status_in_sheet(status_dict, network_ids, colons=('F', 'L'), rows=(row, row), sheet='requests log')
         update_status_in_sheet(links, network_ids, colons=('M', 'S'), rows=(row, row), sheet='requests log')
-        print(log, row, row_check)
+        # print(log, row) 
         update_status_in_sheet(log, network_ids, colons=('A', 'G'), rows=(row, row), sheet='log')
         row_check -= 1
         row -= 1
