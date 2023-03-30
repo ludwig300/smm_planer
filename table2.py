@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime
 import json
 import os
-
+from urllib.parse import unquote, urlsplit
 import aiohttp
 import requests
 import vk_api
@@ -56,23 +56,32 @@ def process_google_doc(doc_id):
     return doc.get("body", {}).get("content", [])
 
 
-async def send_telegram_message(chat_id, text, photo_url=None):
+async def send_telegram_message(chat_id, text, photo_url=None, is_gif=False):
     async with aiohttp.ClientSession() as session:
         if photo_url:
             async with session.get(photo_url) as resp:
                 image_data = await resp.read()
-            response = await telegram_bot.send_photo(chat_id=chat_id, photo=image_data, caption=text)
+            if is_gif:
+                response = await telegram_bot.send_animation(chat_id=chat_id, animation=photo_url, caption=text)
+            else:
+                response = await telegram_bot.send_photo(chat_id=chat_id, photo=image_data, caption=text)
             return response['message_id']
         else:
             response = await telegram_bot.send_message(chat_id=chat_id, text=text)
             return response['message_id']
 
 
-def send_vk_post(owner_id, text, photo_url=None):
+def send_vk_post(owner_id, text, photo_url=None, is_gif=False):
     if photo_url:
         image_data = requests.get(photo_url).content
-        photo = vk_upload(vk_session, image_data)
-        attachment = f"photo{photo['owner_id']}_{photo['id']}"
+        if is_gif:
+            photo = vk_upload(vk_session, image_data, photo_url, is_gif)
+            attachment = f"doc{photo['doc']['owner_id']}_{photo['doc']['id']}"
+            # Гифки!
+        else:
+            photo = vk_upload(vk_session, image_data, photo_url, is_gif)
+            attachment = f"photo{photo['owner_id']}_{photo['id']}"
+
     else:
         attachment = None
     response = vk.wall.post(owner_id=owner_id, message=text, attachments=attachment)
@@ -82,13 +91,52 @@ def send_vk_post(owner_id, text, photo_url=None):
         return f'https://vk.com/wall{owner_id}_{response["post_id"]}'
 
 
-def vk_upload(session, image_data):
-    upload_server = session.method("photos.getWallUploadServer")
-    upload_url = upload_server["upload_url"]
-    response = requests.post(upload_url, files={"photo": ("image.jpg", image_data)})
-    result = json.loads(response.text)
-    photos = session.method("photos.saveWallPhoto", {"photo": result["photo"], "server": result["server"], "hash": result["hash"]})
-    return photos[0]
+def get_name_and_extension_file(url, tuple=True, name_only=False, extension_only=False):
+    url_split = urlsplit(url)
+    path = url_split.path
+    path = unquote(path)
+    head, tail = os.path.split(path)
+
+    name, extension = os.path.splitext(tail)
+    if tuple:
+        return name, extension
+    if name_only:
+        return name
+    if extension_only:
+        return extension
+    if not tuple:
+        return f'{name}{extension}'
+
+
+def vk_upload(session, image_data, photo_url, is_gif=False):
+    name = get_name_and_extension_file(photo_url, tuple=False)
+    print(name)
+    if is_gif:
+        upload_server = session.method("docs.getWallUploadServer")
+        upload_url = upload_server["upload_url"]
+        response = requests.post(upload_url, files={"file": (name, image_data, "image/gif")})
+        result = json.loads(response.text)
+        photos = session.method(
+            "docs.save",
+            {"file": result['file'], 'title': name}
+        )
+        return photos
+
+
+    else:
+        upload_server = session.method("photos.getWallUploadServer")
+        upload_url = upload_server["upload_url"]
+        response = requests.post(upload_url, files={"photo": (name, image_data)})
+        result = json.loads(response.text)
+        photos = session.method(
+            "photos.saveWallPhoto",
+            {"photo": result["photo"], "server": result["server"], "hash": result["hash"]}
+        )
+        return photos[0]
+
+
+
+
 
 
 def send_ok_post(group_id, text, photo_url=None):
@@ -185,10 +233,13 @@ async def main(last_check_time):
             row_check -= 1
             row -= 1
             continue
-        if not any([doc_url, photo_url]):
-            row_check -= 1
-            row -= 1
-            continue
+        # if not any([doc_url, photo_url]):
+        #     row_check -= 1
+        #     row -= 1
+        #     continue
+        is_gif = False
+        if photo_url:
+            is_gif = photo_url.endswith(".gif")
         check_names = check_names.split(', ')
         post_datetime_str = f"{post_date} {post_time}"
         try:
@@ -223,7 +274,7 @@ async def main(last_check_time):
             if network == 'TG' and not status_log_row_check(networks_log, row_check, network_id):
                 try:
                     await asyncio.sleep(6)
-                    link = await send_telegram_message(network_id, text, photo_url)
+                    link = await send_telegram_message(network_id, text, photo_url, is_gif)
                     status_dict[network_id] = "Success"
                     links[network_id] = f'https://tlgg.ru/{network_id}/{link}'
                     log[network_id] = f'{network_id}, True'
@@ -236,7 +287,7 @@ async def main(last_check_time):
 
             if network == 'VK' and not status_log_row_check(networks_log, row_check, network_id):
                 try:
-                    link = send_vk_post(network_id, text, photo_url)
+                    link = send_vk_post(network_id, text, photo_url, is_gif=is_gif)
                     status_dict[network_id] = "Success"
                     links[network_id] = link
                     log[network_id] = f'{network_id}, True'
@@ -263,7 +314,6 @@ async def main(last_check_time):
         row -= 1
 
 
-#
 if __name__ == '__main__':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     while True:
